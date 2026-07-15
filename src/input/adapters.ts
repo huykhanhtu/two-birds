@@ -1,5 +1,7 @@
 /** Input adapters: DOM events → per-tick lane-switch flags for the pure core.
- * Flags accumulate between ticks and are consumed once per tick (AC-1). */
+ * Flags accumulate between ticks and are consumed once per tick (AC-1).
+ * Pointer input is WINDOW-wide split by viewport halves — the spec says
+ * "chạm nửa trái/phải MÀN HÌNH", so gutters outside the canvas must work too. */
 import type { Inputs } from "../core/game";
 
 export interface InputCollector {
@@ -8,7 +10,7 @@ export interface InputCollector {
   dispose(): void;
 }
 
-export function attachInputs(canvas: HTMLCanvasElement): InputCollector {
+export function attachInputs(): InputCollector {
   let left = false;
   let right = false;
 
@@ -18,14 +20,12 @@ export function attachInputs(canvas: HTMLCanvasElement): InputCollector {
     if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") right = true;
   };
   const onPointer = (e: PointerEvent) => {
-    const rect = canvas.getBoundingClientRect();
-    if (e.clientX - rect.left < rect.width / 2) left = true;
+    if (e.clientX < window.innerWidth / 2) left = true;
     else right = true;
-    e.preventDefault();
   };
 
   window.addEventListener("keydown", onKey);
-  canvas.addEventListener("pointerdown", onPointer);
+  window.addEventListener("pointerdown", onPointer);
 
   return {
     drain() {
@@ -36,7 +36,7 @@ export function attachInputs(canvas: HTMLCanvasElement): InputCollector {
     },
     dispose() {
       window.removeEventListener("keydown", onKey);
-      canvas.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("pointerdown", onPointer);
     },
   };
 }

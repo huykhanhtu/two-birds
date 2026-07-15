@@ -38,11 +38,20 @@ export const DEFAULT_CONFIG: GameConfig = {
 
 export class ConfigError extends Error {}
 
+/** Ticks a falling object spends inside the collision zone at the bird's row. */
+export function collisionWindowTicks(c: GameConfig): number {
+  return Math.ceil((2 * (c.birdHalf + c.objHalf) * c.hitboxShrink) / c.fallSpeed);
+}
+
 /** Fail loudly at startup — never run on silently-broken tuning (AC-9). */
 export function validateConfig(c: GameConfig): GameConfig {
   const bad = (msg: string) => {
     throw new ConfigError(`invalid config: ${msg}`);
   };
+  for (const [key, value] of Object.entries(c)) {
+    // NaN/Infinity slip through every comparison guard (NaN <= 0 is false) — reject first
+    if (typeof value !== "number" || !Number.isFinite(value)) bad(`${key} must be a finite number`);
+  }
   if (c.fieldHeight <= 0) bad("fieldHeight must be > 0");
   if (c.birdY <= 0 || c.birdY >= c.fieldHeight) bad("birdY must be inside the field");
   if (c.fallSpeed <= 0) bad("fallSpeed must be > 0");
@@ -52,6 +61,14 @@ export function validateConfig(c: GameConfig): GameConfig {
   if (c.hitboxShrink <= 0 || c.hitboxShrink > 1) bad("hitboxShrink must be in (0, 1]");
   if (c.birdHalf <= 0 || c.objHalf <= 0) bad("birdHalf/objHalf must be > 0");
   if (c.reactionTicks < 0) bad("reactionTicks must be >= 0");
-  if (c.reactionTicks >= c.minGapTicks) bad("reactionTicks must be < minGapTicks (fairness)");
+  // Fairness (the spec's strongest BR): between two same-side objects the player
+  // must be able to WAIT OUT the first object's collision transit and still have
+  // reaction time before the next arrives. reaction < minGap alone admits
+  // literally unsolvable configs (review P1-2).
+  const transit = collisionWindowTicks(c);
+  if (c.minGapTicks < transit + c.reactionTicks) {
+    bad(`minGapTicks (${c.minGapTicks}) must be >= collision transit (${transit}) + ` +
+        `reactionTicks (${c.reactionTicks}) — otherwise unsolvable spawn patterns exist`);
+  }
   return c;
 }

@@ -69,27 +69,38 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   // 2) move
   let objects = s.objects.map((o) => ({ ...o, y: o.y + cfg.fallSpeed }));
 
-  // 3) collide / eat / miss (AC-2, AC-3)
+  // 3) collide / eat / miss (AC-2, AC-3). Process EVERY object even after a
+  // fatal event so the frozen game-over frame shows post-move positions, the
+  // fatal object itself, and every seed eaten this tick (review P2-1).
   let seedsEaten = s.seedsEaten;
   let gameoverReason: State["gameoverReason"];
-  const survivors: FallingObject[] = [];
+  const remaining: FallingObject[] = [];
   for (const o of objects) {
     const onBird = o.lane === birds[o.side] && collides(o.y, cfg.birdY, cfg);
     if (o.kind === "pole") {
-      if (onBird) gameoverReason = "pole-hit";
-      else if (o.y - cfg.objHalf <= cfg.fieldHeight) survivors.push(o);
-      // poles that clear the bottom simply despawn
+      if (onBird) {
+        gameoverReason = gameoverReason ?? "pole-hit";
+        remaining.push(o); // keep the killer visible in the frozen frame
+      } else if (o.y - cfg.objHalf <= cfg.fieldHeight) {
+        remaining.push(o); // poles that clear the bottom simply despawn
+      }
     } else {
-      if (onBird) seedsEaten += 1; // eaten — gone
-      else if (o.y - cfg.objHalf > cfg.fieldHeight) gameoverReason = "seed-missed";
-      else survivors.push(o);
+      if (onBird) {
+        seedsEaten += 1; // eaten — gone
+      } else if (o.y - cfg.objHalf > cfg.fieldHeight) {
+        gameoverReason = gameoverReason ?? "seed-missed";
+        remaining.push(o);
+      } else {
+        remaining.push(o);
+      }
     }
-    if (gameoverReason) break;
   }
+  objects = remaining;
   if (gameoverReason) {
-    return { ...s, status: "gameover", tick: s.tick + 1, birds, gameoverReason };
+    return {
+      ...s, status: "gameover", tick: s.tick + 1, birds, objects, seedsEaten, gameoverReason,
+    };
   }
-  objects = survivors;
 
   // 4) spawn — per side, gap-constrained rows (AC-4 fairness floor)
   let rng = s.rng;
