@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run --config ../../tests/_runner/vitest.two-birds.config.ts",
-    "test:e2e": "playwright test --config ../../tests/_runner/playwright.two-birds.config.ts"
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.46.0",
