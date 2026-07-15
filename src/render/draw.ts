@@ -1,20 +1,25 @@
-/** Canvas 2D renderer — reads State, never mutates it. Placeholder shapes (Wave 3 = sprites). */
+/** Canvas 2D renderer — reads State, never mutates it. Hand-drawn shapes (no assets,
+ * zero deps — ADR-0007). Wave 3 may swap these for sprites. */
 import type { GameConfig } from "../config";
 import type { Lane, Side, State } from "../core/game";
 
 const COLORS = {
   bg: "#1a1c2c",
-  divider: "#5d275d",
-  lane: "#29366f",
-  birdLeft: "#ef7d57",
-  birdRight: "#41a6f6",
-  pole: "#94b0c2",
-  poleCap: "#566c86",
-  seed: "#ffcd75",
-  text: "#f4f4f4",
-  muted: "#94b0c2",
-  best: "#ffcd75",
-  newBest: "#a7f070",
+  panelL: "#20223a", // left half tint
+  panelR: "#1c2438", // right half tint
+  border: "#94b0c2", // playfield outer edges (the 2 side lines) — bright so the board is framed
+  laneGuide: "#333c57", // inner lane dividers
+  divider: "#5d275d", // center split between the two birds' zones
+  ground: "#3b5dc9",
+  // birds
+  birdLbody: "#ef7d57", birdLwing: "#b13e53", birdLbelly: "#ffcd75",
+  birdRbody: "#41a6f6", birdRwing: "#3b5dc9", birdRbelly: "#73eff7",
+  beak: "#ffcd75", eye: "#f4f4f4", pupil: "#1a1c2c",
+  // objects
+  pole: "#566c86", poleDark: "#333c57", poleEdge: "#94b0c2", bolt: "#ffcd75",
+  seed: "#ffcd75", seedHi: "#fff6d5", seedShade: "#ef7d57", sprout: "#a7f070",
+  // text
+  text: "#f4f4f4", muted: "#94b0c2", best: "#ffcd75", newBest: "#a7f070",
 };
 
 /** Live HUD numbers the shell computes from state (score/best are UI, not core state). */
@@ -48,65 +53,37 @@ export function makeLayout(width: number, height: number, cfg: GameConfig): Layo
 
 export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
                      l: Layout, paused: boolean, hud: Hud): void {
-  ctx.fillStyle = COLORS.bg;
-  ctx.fillRect(0, 0, l.width, l.height);
-
-  // lane guides + center divider
-  ctx.strokeStyle = COLORS.lane;
-  ctx.lineWidth = 2;
-  for (let i = 1; i < 4; i++) {
-    if (i === 2) continue;
-    ctx.beginPath();
-    ctx.moveTo((l.width / 4) * i, 0);
-    ctx.lineTo((l.width / 4) * i, l.height);
-    ctx.stroke();
-  }
-  ctx.fillStyle = COLORS.divider;
-  ctx.fillRect(l.width / 2 - 3, 0, 6, l.height);
+  drawPlayfield(ctx, cfg, l);
 
   const objH = cfg.objHalf * 2 * l.scale;
-  const objW = Math.min(l.width / 4 - 16, objH * 1.2);
-
+  const objW = Math.min(l.width / 4 - 14, objH * 1.25);
   for (const o of s.objects) {
     const x = l.laneX(o.side, o.lane);
     const y = l.y(o.y);
-    if (o.kind === "pole") {
-      ctx.fillStyle = COLORS.pole;
-      ctx.fillRect(x - objW / 2, y - objH / 2, objW, objH);
-      ctx.fillStyle = COLORS.poleCap;
-      ctx.fillRect(x - objW / 2 - 4, y - objH / 2, objW + 8, objH * 0.2);
-    } else {
-      ctx.fillStyle = COLORS.seed;
-      ctx.beginPath();
-      ctx.arc(x, y, objH * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    if (o.kind === "pole") drawPole(ctx, x, y, objW, objH);
+    else drawSeed(ctx, x, y, objH * 0.46);
   }
 
-  // birds — triangles pointing up
-  const birdH = cfg.birdHalf * 2 * l.scale;
-  ([0, 1] as const).forEach((side) => {
-    const x = l.laneX(side, s.birds[side]);
-    const y = l.y(cfg.birdY);
-    ctx.fillStyle = side === 0 ? COLORS.birdLeft : COLORS.birdRight;
-    ctx.beginPath();
-    ctx.moveTo(x, y - birdH / 2);
-    ctx.lineTo(x - birdH / 2, y + birdH / 2);
-    ctx.lineTo(x + birdH / 2, y + birdH / 2);
-    ctx.closePath();
-    ctx.fill();
-  });
+  const birdR = cfg.birdHalf * l.scale;
+  drawBird(ctx, l.laneX(0, s.birds[0]), l.y(cfg.birdY), birdR, s.tick, "L");
+  drawBird(ctx, l.laneX(1, s.birds[1]), l.y(cfg.birdY), birdR, s.tick, "R");
 
   // live score HUD while playing (AC-1) — hidden under the idle/game-over overlays
   if (s.status === "running") {
-    ctx.fillStyle = COLORS.text;
     ctx.textAlign = "center";
-    ctx.font = `bold ${Math.round(l.width / 16)}px system-ui, sans-serif`;
-    ctx.fillText(String(hud.score), l.width / 2, Math.round(l.height * 0.08));
+    ctx.font = `bold ${Math.round(l.width / 13)}px system-ui, sans-serif`;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.55)";
+    ctx.strokeText(String(hud.score), l.width / 2, Math.round(l.height * 0.09));
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText(String(hud.score), l.width / 2, Math.round(l.height * 0.09));
   }
 
   if (s.status === "idle") {
     overlayBackdrop(ctx, l);
+    // decorative pair of birds above the title
+    drawBird(ctx, l.width / 2 - l.width * 0.13, l.height / 2 - l.height * 0.16, l.width * 0.05, 0, "L");
+    drawBird(ctx, l.width / 2 + l.width * 0.13, l.height / 2 - l.height * 0.16, l.width * 0.05, 0, "R");
     ctx.fillStyle = COLORS.text;
     ctx.textAlign = "center";
     ctx.font = `bold ${Math.round(l.width / 10)}px system-ui, sans-serif`;
@@ -155,6 +132,186 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
     ctx.fillStyle = COLORS.text;
     ctx.font = `${Math.round(l.width / 26)}px system-ui, sans-serif`;
     ctx.fillText("Chạm / Space để chơi lại", cx, l.height / 2 + 88);
+  }
+}
+
+// ---------- playfield ----------
+
+function drawPlayfield(ctx: CanvasRenderingContext2D, cfg: GameConfig, l: Layout): void {
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(0, 0, l.width, l.height);
+  // per-half tint so each bird's zone reads as its own board
+  ctx.fillStyle = COLORS.panelL;
+  ctx.fillRect(0, 0, l.width / 2, l.height);
+  ctx.fillStyle = COLORS.panelR;
+  ctx.fillRect(l.width / 2, 0, l.width / 2, l.height);
+
+  // inner lane dividers (dashed, faint) — one per side, between its 2 lanes
+  ctx.strokeStyle = COLORS.laneGuide;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 12]);
+  for (const i of [1, 3]) {
+    ctx.beginPath();
+    ctx.moveTo((l.width / 4) * i, 0);
+    ctx.lineTo((l.width / 4) * i, l.height);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // the 2 SIDE lines (outer edges) — solid + bright so the board is clearly bounded
+  ctx.strokeStyle = COLORS.border;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(2.5, 0); ctx.lineTo(2.5, l.height);
+  ctx.moveTo(l.width - 2.5, 0); ctx.lineTo(l.width - 2.5, l.height);
+  ctx.stroke();
+
+  // center divider between the two halves
+  ctx.fillStyle = COLORS.divider;
+  ctx.fillRect(l.width / 2 - 3, 0, 6, l.height);
+
+  // ground line at the birds' row
+  const gy = l.y(cfg.birdY) + cfg.birdHalf * l.scale + 6;
+  ctx.strokeStyle = COLORS.ground;
+  ctx.globalAlpha = 0.5;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, gy); ctx.lineTo(l.width, gy);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+// ---------- entities ----------
+
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number,
+                       w: number, h: number, r: number): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/** Electricity pole = the hazard to avoid: steel body, dark cap, warning ⚡ bolt. */
+function drawPole(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number): void {
+  const x = cx - w / 2;
+  const y = cy - h / 2;
+  // body
+  roundRectPath(ctx, x, y, w, h, Math.min(8, w * 0.18));
+  ctx.fillStyle = COLORS.pole;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = COLORS.poleDark;
+  ctx.stroke();
+  // top cap (cross-arm feel)
+  ctx.fillStyle = COLORS.poleDark;
+  roundRectPath(ctx, x - w * 0.14, y, w * 1.28, h * 0.2, 3);
+  ctx.fill();
+  // lightning bolt (danger)
+  const bx = cx, by = cy;
+  const u = h * 0.16;
+  ctx.fillStyle = COLORS.bolt;
+  ctx.beginPath();
+  ctx.moveTo(bx + u * 0.5, by - u * 1.4);
+  ctx.lineTo(bx - u * 0.7, by + u * 0.2);
+  ctx.lineTo(bx - u * 0.05, by + u * 0.2);
+  ctx.lineTo(bx - u * 0.5, by + u * 1.4);
+  ctx.lineTo(bx + u * 0.7, by - u * 0.2);
+  ctx.lineTo(bx + u * 0.02, by - u * 0.2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Grain of seed = the collectible: golden teardrop, highlight + little green sprout. */
+function drawSeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  // soft glow
+  ctx.fillStyle = "rgba(255,205,117,0.18)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.7, 0, Math.PI * 2);
+  ctx.fill();
+  // teardrop body (pointed top)
+  ctx.fillStyle = COLORS.seed;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r * 1.35);
+  ctx.quadraticCurveTo(cx + r * 1.15, cy - r * 0.2, cx, cy + r * 1.15);
+  ctx.quadraticCurveTo(cx - r * 1.15, cy - r * 0.2, cx, cy - r * 1.35);
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = COLORS.seedShade;
+  ctx.stroke();
+  // highlight
+  ctx.fillStyle = COLORS.seedHi;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.32, cy - r * 0.1, r * 0.22, r * 0.45, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+  // sprout
+  ctx.strokeStyle = COLORS.sprout;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r * 1.25);
+  ctx.quadraticCurveTo(cx + r * 0.5, cy - r * 1.9, cx + r * 0.15, cy - r * 2.2);
+  ctx.stroke();
+}
+
+/** A little bird facing up: body, belly, wing (flaps with tick), tail, beak, eye. */
+function drawBird(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number,
+                  tick: number, which: "L" | "R"): void {
+  const body = which === "L" ? COLORS.birdLbody : COLORS.birdRbody;
+  const wing = which === "L" ? COLORS.birdLwing : COLORS.birdRwing;
+  const belly = which === "L" ? COLORS.birdLbelly : COLORS.birdRbelly;
+  const flap = Math.sin(tick * 0.25) * r * 0.18;
+
+  // tail (behind, bottom)
+  ctx.fillStyle = wing;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + r * 0.2);
+  ctx.lineTo(cx - r * 0.5, cy + r * 1.15);
+  ctx.lineTo(cx + r * 0.5, cy + r * 1.15);
+  ctx.closePath();
+  ctx.fill();
+
+  // body
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, r * 0.8, r * 0.95, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // belly
+  ctx.fillStyle = belly;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + r * 0.25, r * 0.5, r * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // wing (flaps)
+  ctx.fillStyle = wing;
+  ctx.beginPath();
+  ctx.ellipse(cx - r * 0.55, cy - flap, r * 0.32, r * 0.6, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + r * 0.55, cy - flap, r * 0.32, r * 0.6, 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // beak (up)
+  ctx.fillStyle = COLORS.beak;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r * 1.35);
+  ctx.lineTo(cx - r * 0.22, cy - r * 0.85);
+  ctx.lineTo(cx + r * 0.22, cy - r * 0.85);
+  ctx.closePath();
+  ctx.fill();
+
+  // eyes
+  for (const dx of [-r * 0.3, r * 0.3]) {
+    ctx.fillStyle = COLORS.eye;
+    ctx.beginPath();
+    ctx.arc(cx + dx, cy - r * 0.35, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLORS.pupil;
+    ctx.beginPath();
+    ctx.arc(cx + dx, cy - r * 0.38, r * 0.1, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
