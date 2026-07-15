@@ -1,4 +1,5 @@
-/** TB-007 (pause on blur) + TB-010 (keyboard + touch, responsive) — real browser.
+/** Real-browser e2e: TB-007 (pause on blur), TB-010 (keyboard + touch, responsive),
+ * TB-020 (idle Start screen), TB-018/TB-021 (best score persist + New best! + restart).
  * Lives inside the project (not tests/e2e/) because npm resolves @playwright/test
  * by walking up from the spec file — it must sit next to the project's
  * node_modules. Run via `npm run test:e2e` from src/two-birds. */
@@ -6,17 +7,35 @@ import { expect, test } from "@playwright/test";
 
 declare global {
   interface Window {
-    __twoBirds: { getState: () => { tick: number; birds: [number, number]; status: string }; isPaused: () => boolean };
+    __twoBirds: {
+      getState: () => { tick: number; birds: [number, number]; status: string; seedsEaten: number };
+      isPaused: () => boolean;
+      getScore: () => number;
+      getBest: () => number;
+      isNewBest: () => boolean;
+    };
   }
 }
 
-const state = (page: import("@playwright/test").Page) =>
-  page.evaluate(() => window.__twoBirds.getState());
+type Pg = import("@playwright/test").Page;
+const state = (page: Pg) => page.evaluate(() => window.__twoBirds.getState());
+const status = (p: Pg) => p.evaluate(() => window.__twoBirds.getState().status);
+const score = (p: Pg) => p.evaluate(() => window.__twoBirds.getScore());
+const best = (p: Pg) => p.evaluate(() => window.__twoBirds.getBest());
+const isNewBest = (p: Pg) => p.evaluate(() => window.__twoBirds.isNewBest());
+
+/** Dismiss the Start screen (idle → running). Space never doubles as a lane switch
+ * (the input adapter ignores it and startRun() drains), so birds stay [0,1]. */
+async function start(page: Pg): Promise<void> {
+  await page.keyboard.press("Space");
+  await expect.poll(async () => (await state(page)).status).toBe("running");
+}
 
 test("TB-010: keyboard switches the correct bird on desktop viewport", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
   await expect(page.locator("#game")).toBeVisible();
+  await start(page);
   const before = await state(page);
   await page.keyboard.press("a");
   await expect.poll(async () => (await state(page)).birds[0]).toBe(1 - before.birds[0]);
@@ -31,7 +50,11 @@ test("TB-010: touch on left/right half switches the matching bird (mobile portra
   const canvas = page.locator("#game");
   await expect(canvas).toBeVisible();
   const box = (await canvas.boundingBox())!;
+  // first tap starts the game (Start screen); it must not switch a lane
+  await page.touchscreen.tap(box.x + box.width * 0.25, box.y + box.height * 0.5);
+  await expect.poll(async () => (await state(page)).status).toBe("running");
   const before = await state(page);
+  expect(before.birds).toEqual([0, 1]); // starting tap did NOT leak as a switch
   await page.touchscreen.tap(box.x + box.width * 0.25, box.y + box.height * 0.5);
   await expect.poll(async () => (await state(page)).birds[0]).toBe(1 - before.birds[0]);
   const mid = await state(page);
@@ -41,6 +64,7 @@ test("TB-010: touch on left/right half switches the matching bird (mobile portra
 
 test("TB-007: blur pauses the game, focus resumes with state intact", async ({ page }) => {
   await page.goto("/");
+  await start(page);
   await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(10);
   await page.evaluate(() => window.dispatchEvent(new Event("blur")));
   await expect.poll(() => page.evaluate(() => window.__twoBirds.isPaused())).toBe(true);
@@ -50,4 +74,66 @@ test("TB-007: blur pauses the game, focus resumes with state intact", async ({ p
   expect(still.tick).toBe(frozen.tick); // nothing moved while blurred
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(frozen.tick);
+});
+
+test("TB-020: opens on the idle Start screen and does not tick until first input", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game")).toBeVisible();
+  const s0 = await state(page);
+  expect(s0.status).toBe("idle");
+  await page.waitForTimeout(500);
+  const s1 = await state(page);
+  expect(s1.status).toBe("idle");
+  expect(s1.tick).toBe(0); // no logic ran while waiting on the Start screen
+  await start(page);
+  await expect.poll(async () => (await state(page)).tick).toBeGreaterThan(0);
+});
+
+test("TB-018: best score persists across a reload and shows on the Start screen", async ({ page }) => {
+  await page.goto("/");
+  // seed a stored best, then reload — a returning player must see it (AC-8)
+  await page.evaluate(() => localStorage.setItem("twobirds.bestScore.v1", "137"));
+  await page.reload();
+  await expect(page.locator("#game")).toBeVisible();
+  expect((await state(page)).status).toBe("idle");
+  await expect.poll(() => page.evaluate(() => window.__twoBirds.getBest())).toBe(137);
+});
+
+test("TB-021/TB-018: a played new best flags New best!, persists across reload, and restart resets clean", async ({ page }) => {
+  // fresh player (no stored best). Hands-off: the first object reaches the bird
+  // ~tick 193, so a session always survives >1s → score > 0 → a genuine new record.
+  await page.context().clearCookies();
+  await page.goto("/");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await start(page);
+
+  await expect.poll(() => status(page), { timeout: 15000 }).toBe("gameover");
+  const played = await score(page);
+  expect(played).toBeGreaterThan(0); // survived long enough to score from time
+  expect(await isNewBest(page)).toBe(true); // AC-11 badge condition
+  expect(await best(page)).toBe(played); // AC-8 written from real play, not hand-seeded
+
+  // restart → clean state, best preserved, New best! cleared (AC-11)
+  await page.keyboard.press("Space");
+  await expect.poll(() => status(page)).toBe("running");
+  expect(await score(page)).toBe(0);
+  expect(await isNewBest(page)).toBe(false);
+  expect(await best(page)).toBe(played);
+
+  // and the played best survives a full reload (real write path persisted)
+  await page.reload();
+  await expect.poll(() => status(page)).toBe("idle");
+  expect(await best(page)).toBe(played);
+});
+
+test("TB-018/TB-021: a session below the record leaves best unchanged and does not flag New best!", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("twobirds.bestScore.v1", "999999"));
+  await page.reload();
+  await start(page);
+  await expect.poll(() => status(page), { timeout: 15000 }).toBe("gameover");
+  expect(await score(page)).toBeLessThan(999999); // a hands-off session never beats this
+  expect(await isNewBest(page)).toBe(false);
+  expect(await best(page)).toBe(999999); // untouched
 });

@@ -12,7 +12,18 @@ const COLORS = {
   poleCap: "#566c86",
   seed: "#ffcd75",
   text: "#f4f4f4",
+  muted: "#94b0c2",
+  best: "#ffcd75",
+  newBest: "#a7f070",
 };
+
+/** Live HUD numbers the shell computes from state (score/best are UI, not core state). */
+export interface Hud {
+  score: number;
+  best: number;
+  /** true when the just-ended session beat the stored best (game-over only) */
+  newBest: boolean;
+}
 
 export interface Layout {
   width: number;
@@ -36,7 +47,7 @@ export function makeLayout(width: number, height: number, cfg: GameConfig): Layo
 }
 
 export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
-                     l: Layout, paused: boolean): void {
+                     l: Layout, paused: boolean, hud: Hud): void {
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, l.width, l.height);
 
@@ -86,20 +97,68 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
     ctx.fill();
   });
 
-  if (s.status === "gameover" || paused) {
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(0, 0, l.width, l.height);
+  // live score HUD while playing (AC-1) — hidden under the idle/game-over overlays
+  if (s.status === "running") {
+    ctx.fillStyle = COLORS.text;
+    ctx.textAlign = "center";
+    ctx.font = `bold ${Math.round(l.width / 16)}px system-ui, sans-serif`;
+    ctx.fillText(String(hud.score), l.width / 2, Math.round(l.height * 0.08));
+  }
+
+  if (s.status === "idle") {
+    overlayBackdrop(ctx, l);
+    ctx.fillStyle = COLORS.text;
+    ctx.textAlign = "center";
+    ctx.font = `bold ${Math.round(l.width / 10)}px system-ui, sans-serif`;
+    ctx.fillText("Two Birds", l.width / 2, l.height / 2 - 40);
+    ctx.font = `${Math.round(l.width / 26)}px system-ui, sans-serif`;
+    ctx.fillStyle = COLORS.best;
+    ctx.fillText(`Best: ${hud.best}`, l.width / 2, l.height / 2 + 8);
+    ctx.fillStyle = COLORS.text;
+    ctx.fillText("Chạm / Space để chơi", l.width / 2, l.height / 2 + 48);
+    return;
+  }
+
+  if (paused) {
+    overlayBackdrop(ctx, l);
     ctx.fillStyle = COLORS.text;
     ctx.textAlign = "center";
     ctx.font = `bold ${Math.round(l.width / 14)}px system-ui, sans-serif`;
-    if (paused) {
-      ctx.fillText("Tạm dừng", l.width / 2, l.height / 2);
-    } else {
-      const why = s.gameoverReason === "seed-missed" ? "Lỡ mất hạt thóc!" : "Đâm cột điện!";
-      ctx.fillText("Game Over", l.width / 2, l.height / 2 - 30);
-      ctx.font = `${Math.round(l.width / 24)}px system-ui, sans-serif`;
-      ctx.fillText(why, l.width / 2, l.height / 2 + 14);
-      ctx.fillText("Chạm / Space để chơi lại", l.width / 2, l.height / 2 + 52);
-    }
+    ctx.fillText("Tạm dừng", l.width / 2, l.height / 2);
+    return;
   }
+
+  if (s.status === "gameover") {
+    overlayBackdrop(ctx, l);
+    const cx = l.width / 2;
+    const why = s.gameoverReason === "seed-missed" ? "Lỡ mất hạt thóc!" : "Đâm cột điện!";
+    ctx.textAlign = "center";
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `bold ${Math.round(l.width / 14)}px system-ui, sans-serif`;
+    ctx.fillText("Game Over", cx, l.height / 2 - 90);
+    ctx.font = `${Math.round(l.width / 26)}px system-ui, sans-serif`;
+    ctx.fillStyle = COLORS.muted;
+    ctx.fillText(why, cx, l.height / 2 - 50);
+
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `bold ${Math.round(l.width / 11)}px system-ui, sans-serif`;
+    ctx.fillText(String(hud.score), cx, l.height / 2 + 6);
+
+    ctx.font = `${Math.round(l.width / 28)}px system-ui, sans-serif`;
+    if (hud.newBest) {
+      ctx.fillStyle = COLORS.newBest;
+      ctx.fillText("★ New best! ★", cx, l.height / 2 + 44);
+    } else {
+      ctx.fillStyle = COLORS.best;
+      ctx.fillText(`Best: ${hud.best}`, cx, l.height / 2 + 44);
+    }
+    ctx.fillStyle = COLORS.text;
+    ctx.font = `${Math.round(l.width / 26)}px system-ui, sans-serif`;
+    ctx.fillText("Chạm / Space để chơi lại", cx, l.height / 2 + 88);
+  }
+}
+
+function overlayBackdrop(ctx: CanvasRenderingContext2D, l: Layout): void {
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(0, 0, l.width, l.height);
 }

@@ -1,7 +1,12 @@
 /** Pure game core (ADR-0008): tick(state, inputs, config) → new state.
  * No DOM, no wall-clock, no ambient randomness — the RNG state lives inside State.
- * Per-tick order (deterministic): inputs → move → collide → spawn. */
-import type { GameConfig } from "../config";
+ * Per-tick order (deterministic): read difficulty → inputs → move → collide → spawn. */
+import {
+  difficultyT,
+  effectiveFallSpeed,
+  effectiveMinGap,
+  type GameConfig,
+} from "../config";
 import { nextRand, seedRng } from "./rng";
 
 export type Side = 0 | 1; // 0 = left half, 1 = right half
@@ -24,7 +29,8 @@ export interface Inputs {
 }
 
 export interface State {
-  status: "running" | "gameover";
+  /** idle = màn Start chờ input đầu (không tick); running; gameover (AC-10/AC-11) */
+  status: "idle" | "running" | "gameover";
   tick: number;
   /** current lane of each bird, indexed by Side */
   birds: [Lane, Lane];
@@ -38,10 +44,14 @@ export interface State {
   gameoverReason?: "pole-hit" | "seed-missed";
 }
 
-export function initState(seed: number, cfg: GameConfig): State {
+export function initState(
+  seed: number,
+  cfg: GameConfig,
+  status: State["status"] = "running",
+): State {
   // first spawns stagger the two sides so play never opens with a double decision
   return {
-    status: "running",
+    status,
     tick: 0,
     birds: [0, 1],
     objects: [],
@@ -52,6 +62,15 @@ export function initState(seed: number, cfg: GameConfig): State {
   };
 }
 
+/** Score = seeds eaten × seedPoints + survived seconds × timePoints (AC-1).
+ * Pure function of state — frozen automatically once the game stops ticking (AC-2). */
+export function scoreOf(s: State, cfg: GameConfig): number {
+  return (
+    s.seedsEaten * cfg.seedPoints +
+    Math.floor(s.tick / cfg.ticksPerSecond) * cfg.timePoints
+  );
+}
+
 function collides(objY: number, birdY: number, cfg: GameConfig): boolean {
   const reach = (cfg.birdHalf + cfg.objHalf) * cfg.hitboxShrink; // AC-5
   return Math.abs(objY - birdY) < reach;
@@ -60,6 +79,12 @@ function collides(objY: number, birdY: number, cfg: GameConfig): boolean {
 export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   if (s.status !== "running") return s;
 
+  // 0) difficulty for THIS tick — a pure function of the incoming score (AC-4/7).
+  // Read from `s` (before this tick's changes) so it stays deterministic and the
+  // spawn gap below is chosen with the same t used for movement.
+  const t = difficultyT(scoreOf(s, cfg), cfg);
+  const fallSpeed = effectiveFallSpeed(cfg, t);
+
   // 1) inputs — both sides may switch in the same tick, independently (AC-1)
   const birds: [Lane, Lane] = [
     inputs.left ? ((1 - s.birds[0]) as Lane) : s.birds[0],
@@ -67,7 +92,7 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   ];
 
   // 2) move
-  let objects = s.objects.map((o) => ({ ...o, y: o.y + cfg.fallSpeed }));
+  let objects = s.objects.map((o) => ({ ...o, y: o.y + fallSpeed }));
 
   // 3) collide / eat / miss (AC-2, AC-3). Process EVERY object even after a
   // fatal event so the frozen game-over frame shows post-move positions, the
@@ -116,7 +141,9 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
       const kind: ObjectKind = r < cfg.poleRatio ? "pole" : "seed";
       objects = [...objects, { id: nextId++, side, lane, kind, y: -cfg.objHalf }];
       [r, rng] = nextRand(rng);
-      nextSpawn[side] = newTick + cfg.minGapTicks + Math.floor(r * cfg.gapJitterTicks);
+      // gap shrinks with difficulty (denser) but never below the fairness floor,
+      // enforced structurally by validateConfig across all t (AC-6). Jitter only adds.
+      nextSpawn[side] = newTick + effectiveMinGap(cfg, t) + Math.floor(r * cfg.gapJitterTicks);
     }
   }
 
