@@ -11,7 +11,7 @@ const COLORS = {
   birdRbody: "#41a6f6", birdRwing: "#3b5dc9", birdRbelly: "#73eff7",
   beak: "#ffcd75", eye: "#f4f4f4", pupil: "#1a1c2c", outline: "rgba(26,28,44,0.35)",
   // objects
-  pole: "#566c86", poleDark: "#333c57", poleEdge: "#94b0c2", bolt: "#ffcd75",
+  planeBody: "#eef2f7", planeWing: "#9fb0c4", planeAccent: "#ef7d57", cockpit: "#2f3b57",
   seed: "#ffcd75", seedHi: "#fff6d5", seedShade: "#ef7d57", sprout: "#a7f070",
   // text
   text: "#f4f4f4", muted: "#94b0c2", best: "#ffcd75", newBest: "#a7f070",
@@ -55,7 +55,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
   for (const o of s.objects) {
     const x = l.laneX(o.side, o.lane);
     const y = l.y(o.y);
-    if (o.kind === "pole") drawPole(ctx, x, y, objW, objH);
+    if (o.kind === "pole") drawPlane(ctx, x, y, objW, objH); // "pole" = the avoid-obstacle kind, skinned as a plane
     else drawSeed(ctx, x, y, objH * 0.46);
   }
 
@@ -103,7 +103,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
   if (s.status === "gameover") {
     overlayBackdrop(ctx, l);
     const cx = l.width / 2;
-    const why = s.gameoverReason === "seed-missed" ? "Lỡ mất hạt thóc!" : "Đâm cột điện!";
+    const why = s.gameoverReason === "seed-missed" ? "Lỡ mất hạt thóc!" : "Đâm máy bay!";
     ctx.textAlign = "center";
     ctx.fillStyle = COLORS.text;
     ctx.font = `bold ${Math.round(l.width / 14)}px system-ui, sans-serif`;
@@ -211,33 +211,51 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number,
   ctx.closePath();
 }
 
-/** Electricity pole = the hazard to avoid: steel body, dark cap, warning ⚡ bolt. */
-function drawPole(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number): void {
-  const x = cx - w / 2;
-  const y = cy - h / 2;
-  // body
-  roundRectPath(ctx, x, y, w, h, Math.min(8, w * 0.18));
-  ctx.fillStyle = COLORS.pole;
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = COLORS.poleDark;
-  ctx.stroke();
-  // top cap (cross-arm feel)
-  ctx.fillStyle = COLORS.poleDark;
-  roundRectPath(ctx, x - w * 0.14, y, w * 1.28, h * 0.2, 3);
-  ctx.fill();
-  // lightning bolt (danger)
-  const bx = cx, by = cy;
-  const u = h * 0.16;
-  ctx.fillStyle = COLORS.bolt;
+/** Airplane = the hazard to avoid (reskin of the "pole" obstacle kind), nose diving
+ * down toward the birds: swept main wings, tailplane, fuselage, accent stripe, cockpit. */
+function drawPlane(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number): void {
+  const bodyW = w * 0.32;
+  const top = cy - h / 2;
+  const bot = cy + h / 2;
+
+  ctx.fillStyle = COLORS.planeWing;
+  // main wings — swept back (tips toward the tail/top since the nose points down)
   ctx.beginPath();
-  ctx.moveTo(bx + u * 0.5, by - u * 1.4);
-  ctx.lineTo(bx - u * 0.7, by + u * 0.2);
-  ctx.lineTo(bx - u * 0.05, by + u * 0.2);
-  ctx.lineTo(bx - u * 0.5, by + u * 1.4);
-  ctx.lineTo(bx + u * 0.7, by - u * 0.2);
-  ctx.lineTo(bx + u * 0.02, by - u * 0.2);
+  ctx.moveTo(cx, cy - h * 0.06);
+  ctx.lineTo(cx - w * 0.5, cy - h * 0.3);
+  ctx.lineTo(cx - w * 0.5, cy - h * 0.14);
+  ctx.lineTo(cx, cy + h * 0.14);
+  ctx.lineTo(cx + w * 0.5, cy - h * 0.14);
+  ctx.lineTo(cx + w * 0.5, cy - h * 0.3);
   ctx.closePath();
+  ctx.fill();
+  // tailplane — smaller horizontal wings near the tail (top)
+  ctx.beginPath();
+  ctx.moveTo(cx, top + h * 0.04);
+  ctx.lineTo(cx - w * 0.26, top - h * 0.03);
+  ctx.lineTo(cx - w * 0.26, top + h * 0.06);
+  ctx.lineTo(cx, top + h * 0.18);
+  ctx.lineTo(cx + w * 0.26, top + h * 0.06);
+  ctx.lineTo(cx + w * 0.26, top - h * 0.03);
+  ctx.closePath();
+  ctx.fill();
+
+  // fuselage — vertical capsule, rounded nose at the bottom
+  roundRectPath(ctx, cx - bodyW / 2, top, bodyW, h, bodyW / 2);
+  ctx.fillStyle = COLORS.planeBody;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = COLORS.outline;
+  ctx.stroke();
+
+  // accent stripe
+  ctx.fillStyle = COLORS.planeAccent;
+  ctx.fillRect(cx - bodyW / 2, cy + h * 0.02, bodyW, h * 0.1);
+
+  // cockpit window near the nose
+  ctx.fillStyle = COLORS.cockpit;
+  ctx.beginPath();
+  ctx.ellipse(cx, bot - h * 0.18, bodyW * 0.34, h * 0.11, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
