@@ -141,16 +141,6 @@ function drawPlayfield(ctx: CanvasRenderingContext2D, l: Layout, tick: number): 
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, l.width, l.height);
 
-  // sun glow — a soft light source high up gives the sky a lit, 3D feel
-  const sunX = l.width * 0.72;
-  const sunY = l.height * 0.12;
-  const sun = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, l.height * 0.7);
-  sun.addColorStop(0, "rgba(255,249,232,0.55)");
-  sun.addColorStop(0.4, "rgba(255,249,232,0.15)");
-  sun.addColorStop(1, "rgba(255,249,232,0)");
-  ctx.fillStyle = sun;
-  ctx.fillRect(0, 0, l.width, l.height);
-
   drawClouds(ctx, l, tick);
 
   // vignette — darker toward the edges, like a domed sky (adds depth)
