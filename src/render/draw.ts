@@ -133,7 +133,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
 // ---------- playfield ----------
 
 function drawPlayfield(ctx: CanvasRenderingContext2D, l: Layout, tick: number): void {
-  // sky gradient — birds fly in the sky, not on a road
+  // base sky gradient — birds fly in the sky, not on a road
   const g = ctx.createLinearGradient(0, 0, 0, l.height);
   g.addColorStop(0, COLORS.skyTop);
   g.addColorStop(0.55, COLORS.skyMid);
@@ -141,7 +141,27 @@ function drawPlayfield(ctx: CanvasRenderingContext2D, l: Layout, tick: number): 
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, l.width, l.height);
 
+  // sun glow — a soft light source high up gives the sky a lit, 3D feel
+  const sunX = l.width * 0.72;
+  const sunY = l.height * 0.12;
+  const sun = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, l.height * 0.7);
+  sun.addColorStop(0, "rgba(255,249,232,0.55)");
+  sun.addColorStop(0.4, "rgba(255,249,232,0.15)");
+  sun.addColorStop(1, "rgba(255,249,232,0)");
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, l.width, l.height);
+
   drawClouds(ctx, l, tick);
+
+  // vignette — darker toward the edges, like a domed sky (adds depth)
+  const vg = ctx.createRadialGradient(
+    l.width / 2, l.height * 0.42, Math.min(l.width, l.height) * 0.28,
+    l.width / 2, l.height * 0.5, Math.max(l.width, l.height) * 0.8,
+  );
+  vg.addColorStop(0, "rgba(8,18,38,0)");
+  vg.addColorStop(1, "rgba(8,18,38,0.32)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, l.width, l.height);
 
   // lane cues — subtle translucent white so lanes stay readable without looking like a road
   ctx.strokeStyle = "rgba(255,255,255,0.28)";
@@ -180,8 +200,7 @@ function drawClouds(ctx: CanvasRenderingContext2D, l: Layout, tick: number): voi
   const span = l.width + 220;
   const drift = (tick * 0.15) % span;
   ctx.save();
-  ctx.globalAlpha = 0.72;
-  ctx.fillStyle = "#ffffff";
+  ctx.globalAlpha = 0.8;
   for (const c of clouds) {
     const cx = ((c.x * l.width + drift) % span) - 110;
     puff(ctx, cx, c.y * l.height, 22 * c.s * (l.width / 480));
@@ -189,12 +208,29 @@ function drawClouds(ctx: CanvasRenderingContext2D, l: Layout, tick: number): voi
   ctx.restore();
 }
 
+/** Puffy cloud with a top-lit vertical gradient + soft drop shadow → reads as volume. */
 function puff(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  const lobes = (): void => {
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.7, r, 0, 0, Math.PI * 2);
+    ctx.ellipse(x - r, y + r * 0.25, r, r * 0.75, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + r, y + r * 0.25, r * 1.05, r * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // soft shadow underneath (volume)
+  ctx.save();
+  ctx.globalAlpha *= 0.5;
+  ctx.fillStyle = "rgba(60,90,130,0.9)";
   ctx.beginPath();
-  ctx.ellipse(x, y, r * 1.7, r, 0, 0, Math.PI * 2);
-  ctx.ellipse(x - r, y + r * 0.25, r, r * 0.75, 0, 0, Math.PI * 2);
-  ctx.ellipse(x + r, y + r * 0.25, r * 1.05, r * 0.8, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + r * 0.55, r * 1.9, r * 0.65, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.restore();
+  // lit body — white top → cool blue-grey bottom
+  const cg = ctx.createLinearGradient(0, y - r * 1.15, 0, y + r * 1.1);
+  cg.addColorStop(0, "#ffffff");
+  cg.addColorStop(1, "#c2d6ec");
+  ctx.fillStyle = cg;
+  lobes();
 }
 
 // ---------- entities ----------
