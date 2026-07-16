@@ -4,17 +4,12 @@ import type { GameConfig } from "../config";
 import type { Lane, Side, State } from "../core/game";
 
 const COLORS = {
-  bg: "#1a1c2c",
-  panelL: "#20223a", // left half tint
-  panelR: "#1c2438", // right half tint
-  border: "#94b0c2", // playfield outer edges (the 2 side lines) — bright so the board is framed
-  laneGuide: "#333c57", // inner lane dividers
-  divider: "#5d275d", // center split between the two birds' zones
-  ground: "#3b5dc9",
+  // sky (background) — top → horizon
+  skyTop: "#2f5d94", skyMid: "#5b93cf", skyBot: "#c7e6fa",
   // birds
   birdLbody: "#ef7d57", birdLwing: "#b13e53", birdLbelly: "#ffcd75",
   birdRbody: "#41a6f6", birdRwing: "#3b5dc9", birdRbelly: "#73eff7",
-  beak: "#ffcd75", eye: "#f4f4f4", pupil: "#1a1c2c",
+  beak: "#ffcd75", eye: "#f4f4f4", pupil: "#1a1c2c", outline: "rgba(26,28,44,0.35)",
   // objects
   pole: "#566c86", poleDark: "#333c57", poleEdge: "#94b0c2", bolt: "#ffcd75",
   seed: "#ffcd75", seedHi: "#fff6d5", seedShade: "#ef7d57", sprout: "#a7f070",
@@ -53,7 +48,7 @@ export function makeLayout(width: number, height: number, cfg: GameConfig): Layo
 
 export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
                      l: Layout, paused: boolean, hud: Hud): void {
-  drawPlayfield(ctx, cfg, l);
+  drawPlayfield(ctx, l, s.tick);
 
   const objH = cfg.objHalf * 2 * l.scale;
   const objW = Math.min(l.width / 4 - 14, objH * 1.25);
@@ -137,19 +132,21 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
 
 // ---------- playfield ----------
 
-function drawPlayfield(ctx: CanvasRenderingContext2D, cfg: GameConfig, l: Layout): void {
-  ctx.fillStyle = COLORS.bg;
+function drawPlayfield(ctx: CanvasRenderingContext2D, l: Layout, tick: number): void {
+  // sky gradient — birds fly in the sky, not on a road
+  const g = ctx.createLinearGradient(0, 0, 0, l.height);
+  g.addColorStop(0, COLORS.skyTop);
+  g.addColorStop(0.55, COLORS.skyMid);
+  g.addColorStop(1, COLORS.skyBot);
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, l.width, l.height);
-  // per-half tint so each bird's zone reads as its own board
-  ctx.fillStyle = COLORS.panelL;
-  ctx.fillRect(0, 0, l.width / 2, l.height);
-  ctx.fillStyle = COLORS.panelR;
-  ctx.fillRect(l.width / 2, 0, l.width / 2, l.height);
 
-  // inner lane dividers (dashed, faint) — one per side, between its 2 lanes
-  ctx.strokeStyle = COLORS.laneGuide;
+  drawClouds(ctx, l, tick);
+
+  // lane cues — subtle translucent white so lanes stay readable without looking like a road
+  ctx.strokeStyle = "rgba(255,255,255,0.28)";
   ctx.lineWidth = 2;
-  ctx.setLineDash([10, 12]);
+  ctx.setLineDash([9, 14]);
   for (const i of [1, 3]) {
     ctx.beginPath();
     ctx.moveTo((l.width / 4) * i, 0);
@@ -158,27 +155,46 @@ function drawPlayfield(ctx: CanvasRenderingContext2D, cfg: GameConfig, l: Layout
   }
   ctx.setLineDash([]);
 
-  // the 2 SIDE lines (outer edges) — solid + bright so the board is clearly bounded
-  ctx.strokeStyle = COLORS.border;
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(2.5, 0); ctx.lineTo(2.5, l.height);
-  ctx.moveTo(l.width - 2.5, 0); ctx.lineTo(l.width - 2.5, l.height);
-  ctx.stroke();
+  // soft center divider between the two birds' halves
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  ctx.fillRect(l.width / 2 - 2, 0, 4, l.height);
 
-  // center divider between the two halves
-  ctx.fillStyle = COLORS.divider;
-  ctx.fillRect(l.width / 2 - 3, 0, 6, l.height);
-
-  // ground line at the birds' row
-  const gy = l.y(cfg.birdY) + cfg.birdHalf * l.scale + 6;
-  ctx.strokeStyle = COLORS.ground;
-  ctx.globalAlpha = 0.5;
-  ctx.lineWidth = 2;
+  // faint side edges (the 2 boundary lines)
+  ctx.strokeStyle = "rgba(255,255,255,0.5)";
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(0, gy); ctx.lineTo(l.width, gy);
+  ctx.moveTo(2, 0); ctx.lineTo(2, l.height);
+  ctx.moveTo(l.width - 2, 0); ctx.lineTo(l.width - 2, l.height);
   ctx.stroke();
-  ctx.globalAlpha = 1;
+}
+
+/** A few soft clouds drifting slowly across the sky (decor). */
+function drawClouds(ctx: CanvasRenderingContext2D, l: Layout, tick: number): void {
+  const clouds = [
+    { x: 0.18, y: 0.12, s: 1.0 },
+    { x: 0.72, y: 0.24, s: 1.35 },
+    { x: 0.42, y: 0.44, s: 0.8 },
+    { x: 0.83, y: 0.62, s: 1.1 },
+    { x: 0.12, y: 0.76, s: 0.95 },
+  ];
+  const span = l.width + 220;
+  const drift = (tick * 0.15) % span;
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = "#ffffff";
+  for (const c of clouds) {
+    const cx = ((c.x * l.width + drift) % span) - 110;
+    puff(ctx, cx, c.y * l.height, 22 * c.s * (l.width / 480));
+  }
+  ctx.restore();
+}
+
+function puff(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.7, r, 0, 0, Math.PI * 2);
+  ctx.ellipse(x - r, y + r * 0.25, r, r * 0.75, 0, 0, Math.PI * 2);
+  ctx.ellipse(x + r, y + r * 0.25, r * 1.05, r * 0.8, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 // ---------- entities ----------
@@ -273,11 +289,14 @@ function drawBird(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numb
   ctx.closePath();
   ctx.fill();
 
-  // body
+  // body (+ soft outline so the bird pops against the blue sky)
   ctx.fillStyle = body;
   ctx.beginPath();
   ctx.ellipse(cx, cy, r * 0.8, r * 0.95, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.lineWidth = Math.max(1.5, r * 0.08);
+  ctx.strokeStyle = COLORS.outline;
+  ctx.stroke();
   // belly
   ctx.fillStyle = belly;
   ctx.beginPath();
