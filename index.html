@@ -21,11 +21,28 @@
         touch-action: manipulation; padding: 0;
       }
       #mute:hover { background: rgba(86, 108, 134, 0.8); }
+      /* name input — shown only on the Start screen (toggled by JS) */
+      #name {
+        position: fixed;
+        left: 50%; top: 60%;
+        transform: translateX(-50%);
+        width: min(60vw, 220px);
+        padding: 10px 12px;
+        font-size: 18px; text-align: center;
+        color: #1a1c2c; background: rgba(255, 255, 255, 0.92);
+        border: 2px solid #566c86; border-radius: 10px;
+        outline: none; box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #name::placeholder { color: #7a8aa0; }
+      #name:focus { border-color: #41a6f6; }
     </style>
-    <script type="module" crossorigin src="/two-birds/assets/index-Ci846Ygd.js"></script>
+    <script type="module" crossorigin src="/two-birds/assets/index-1okx-3rZ.js"></script>
   </head>
   <body>
     <canvas id="game"></canvas>
     <button id="mute" type="button" aria-label="Bật/tắt âm thanh">🔊</button>
+    <input id="name" type="text" maxlength="12" autocomplete="off" spellcheck="false"
+           placeholder="Tên của bạn" aria-label="Tên người chơi" style="display:none" />
   </body>
 </html>
