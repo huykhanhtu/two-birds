@@ -11,7 +11,7 @@ const COLORS = {
   birdRbody: "#41a6f6", birdRwing: "#3b5dc9", birdRbelly: "#73eff7",
   beak: "#ffcd75", eye: "#f4f4f4", pupil: "#1a1c2c", outline: "rgba(26,28,44,0.35)",
   // objects
-  planeBody: "#eef2f7", planeWing: "#9fb0c4", planeAccent: "#ef7d57", cockpit: "#2f3b57",
+  planeWing: "#c2ccda", planeEngine: "#566c86", planeAccent: "#b13e53", cockpit: "#2f3b57",
   seed: "#ffcd75", seedHi: "#fff6d5", seedShade: "#ef7d57", sprout: "#a7f070",
   // text
   text: "#f4f4f4", muted: "#94b0c2", best: "#ffcd75", newBest: "#a7f070",
@@ -211,51 +211,83 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number,
   ctx.closePath();
 }
 
-/** Airplane = the hazard to avoid (reskin of the "pole" obstacle kind), nose diving
- * down toward the birds: swept main wings, tailplane, fuselage, accent stripe, cockpit. */
+/** Airplane = the hazard to avoid (reskin of the "pole" obstacle kind), a jetliner
+ * diving nose-down toward the birds: swept wings + engines, tail fin + stabilizers,
+ * metallic fuselage, cockpit + cabin windows. */
 function drawPlane(ctx: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number): void {
-  const bodyW = w * 0.32;
+  const fw = w * 0.26; // fuselage width
   const top = cy - h / 2;
   const bot = cy + h / 2;
 
+  // main wings — swept back & tapered (tips toward the tail since the nose points down)
   ctx.fillStyle = COLORS.planeWing;
-  // main wings — swept back (tips toward the tail/top since the nose points down)
   ctx.beginPath();
-  ctx.moveTo(cx, cy - h * 0.06);
-  ctx.lineTo(cx - w * 0.5, cy - h * 0.3);
-  ctx.lineTo(cx - w * 0.5, cy - h * 0.14);
-  ctx.lineTo(cx, cy + h * 0.14);
-  ctx.lineTo(cx + w * 0.5, cy - h * 0.14);
-  ctx.lineTo(cx + w * 0.5, cy - h * 0.3);
-  ctx.closePath();
-  ctx.fill();
-  // tailplane — smaller horizontal wings near the tail (top)
-  ctx.beginPath();
-  ctx.moveTo(cx, top + h * 0.04);
-  ctx.lineTo(cx - w * 0.26, top - h * 0.03);
-  ctx.lineTo(cx - w * 0.26, top + h * 0.06);
-  ctx.lineTo(cx, top + h * 0.18);
-  ctx.lineTo(cx + w * 0.26, top + h * 0.06);
-  ctx.lineTo(cx + w * 0.26, top - h * 0.03);
+  ctx.moveTo(cx - fw * 0.45, cy - h * 0.02);
+  ctx.lineTo(cx - w * 0.5, cy - h * 0.24);
+  ctx.lineTo(cx - w * 0.44, cy - h * 0.28);
+  ctx.lineTo(cx - fw * 0.45, cy - h * 0.13);
+  ctx.lineTo(cx + fw * 0.45, cy - h * 0.13);
+  ctx.lineTo(cx + w * 0.44, cy - h * 0.28);
+  ctx.lineTo(cx + w * 0.5, cy - h * 0.24);
+  ctx.lineTo(cx + fw * 0.45, cy - h * 0.02);
   ctx.closePath();
   ctx.fill();
 
-  // fuselage — vertical capsule, rounded nose at the bottom
-  roundRectPath(ctx, cx - bodyW / 2, top, bodyW, h, bodyW / 2);
-  ctx.fillStyle = COLORS.planeBody;
+  // engine nacelles slung under the wings
+  ctx.fillStyle = COLORS.planeEngine;
+  for (const sx of [-1, 1]) {
+    roundRectPath(ctx, cx + sx * w * 0.28 - w * 0.045, cy - h * 0.2, w * 0.09, h * 0.15, 3);
+    ctx.fill();
+  }
+
+  // horizontal stabilizers (small tail wings)
+  ctx.fillStyle = COLORS.planeWing;
+  ctx.beginPath();
+  ctx.moveTo(cx - fw * 0.4, top + h * 0.12);
+  ctx.lineTo(cx - w * 0.24, top + h * 0.03);
+  ctx.lineTo(cx - w * 0.2, top + h * 0.06);
+  ctx.lineTo(cx - fw * 0.4, top + h * 0.19);
+  ctx.lineTo(cx + fw * 0.4, top + h * 0.19);
+  ctx.lineTo(cx + w * 0.2, top + h * 0.06);
+  ctx.lineTo(cx + w * 0.24, top + h * 0.03);
+  ctx.lineTo(cx + fw * 0.4, top + h * 0.12);
+  ctx.closePath();
   ctx.fill();
-  ctx.lineWidth = 1.5;
+
+  // vertical tail fin (accent livery), rising at the tail
+  ctx.fillStyle = COLORS.planeAccent;
+  ctx.beginPath();
+  ctx.moveTo(cx, top - h * 0.02);
+  ctx.lineTo(cx - fw * 0.3, top + h * 0.14);
+  ctx.lineTo(cx + fw * 0.3, top + h * 0.14);
+  ctx.closePath();
+  ctx.fill();
+
+  // fuselage — metallic tube (cylindrical shading), tapered tail, rounded nose
+  const g = ctx.createLinearGradient(cx - fw / 2, 0, cx + fw / 2, 0);
+  g.addColorStop(0, "#c9d2de");
+  g.addColorStop(0.5, "#ffffff");
+  g.addColorStop(1, "#c9d2de");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(cx - fw / 2, top + h * 0.16);
+  ctx.quadraticCurveTo(cx - fw / 2, bot - h * 0.02, cx, bot); // left side → nose
+  ctx.quadraticCurveTo(cx + fw / 2, bot - h * 0.02, cx + fw / 2, top + h * 0.16);
+  ctx.quadraticCurveTo(cx, top - h * 0.04, cx - fw / 2, top + h * 0.16); // tail taper
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = 1;
   ctx.strokeStyle = COLORS.outline;
   ctx.stroke();
 
-  // accent stripe
-  ctx.fillStyle = COLORS.planeAccent;
-  ctx.fillRect(cx - bodyW / 2, cy + h * 0.02, bodyW, h * 0.1);
-
-  // cockpit window near the nose
+  // cabin windows (dotted line down the fuselage)
   ctx.fillStyle = COLORS.cockpit;
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(cx - fw * 0.12, cy - h * 0.1 + i * h * 0.07, fw * 0.24, h * 0.025);
+  }
+  // cockpit windshield near the nose
   ctx.beginPath();
-  ctx.ellipse(cx, bot - h * 0.18, bodyW * 0.34, h * 0.11, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx, bot - h * 0.14, fw * 0.32, h * 0.06, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
