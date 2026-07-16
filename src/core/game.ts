@@ -40,6 +40,9 @@ export interface State {
   rng: number;
   nextId: number;
   seedsEaten: number;
+  /** seeds eaten per side (deterministic; lets the render layer attribute the eat
+   * feedback to the correct bird without knowing which one ate) */
+  seedsEatenBySide: [number, number];
   /** what ended the game (render shows it; Wave 2 uses it for stats) */
   gameoverReason?: "pole-hit" | "seed-missed";
 }
@@ -59,6 +62,7 @@ export function initState(
     rng: seedRng(seed),
     nextId: 1,
     seedsEaten: 0,
+    seedsEatenBySide: [0, 0],
   };
 }
 
@@ -98,6 +102,7 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   // fatal event so the frozen game-over frame shows post-move positions, the
   // fatal object itself, and every seed eaten this tick (review P2-1).
   let seedsEaten = s.seedsEaten;
+  const seedsBySide: [number, number] = [...s.seedsEatenBySide];
   let gameoverReason: State["gameoverReason"];
   const remaining: FallingObject[] = [];
   for (const o of objects) {
@@ -112,6 +117,7 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
     } else {
       if (onBird) {
         seedsEaten += 1; // eaten — gone
+        seedsBySide[o.side] += 1;
       } else if (o.y - cfg.objHalf > cfg.fieldHeight) {
         gameoverReason = gameoverReason ?? "seed-missed";
         remaining.push(o);
@@ -123,7 +129,8 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   objects = remaining;
   if (gameoverReason) {
     return {
-      ...s, status: "gameover", tick: s.tick + 1, birds, objects, seedsEaten, gameoverReason,
+      ...s, status: "gameover", tick: s.tick + 1, birds, objects,
+      seedsEaten, seedsEatenBySide: seedsBySide, gameoverReason,
     };
   }
 
@@ -156,5 +163,6 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
     rng,
     nextId,
     seedsEaten,
+    seedsEatenBySide: seedsBySide,
   };
 }

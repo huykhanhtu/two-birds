@@ -7,11 +7,13 @@
  * refocuses a blurred tab, must NOT leak into the new/resumed game as a lane
  * switch — pending flags are discarded on restart and on the first frame after
  * resume (`justResumed`). */
+import { createSfx } from "./audio/sfx";
 import { DEFAULT_CONFIG, validateConfig } from "./config";
 import { initState, scoreOf, tick, type State } from "./core/game";
 import { attachInputs } from "./input/adapters";
 import { createBestScoreStore } from "./persistence/bestScore";
 import { draw, makeLayout, type Hud, type Layout } from "./render/draw";
+import { createJuice } from "./render/juice";
 
 const TICK_MS = 1000 / 60;
 const MAX_CATCHUP_TICKS = 5; // after a long stall, don't fast-forward to death
@@ -21,6 +23,8 @@ const canvas = document.getElementById("game") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 const inputs = attachInputs();
 const bestScore = createBestScoreStore();
+const sfx = createSfx();
+const juice = createJuice();
 
 // open on the Start screen (idle): the core does not tick until first input (AC-10)
 let state: State = initState(Date.now() & 0xffffffff, cfg, "idle");
@@ -28,6 +32,7 @@ let layout: Layout;
 let paused = false;
 let justResumed = false;
 let newBest = false; // set when the last game-over beat the stored best (AC-11)
+let prevBySide: [number, number] = [0, 0]; // per-side eat detection (SFX + particles) — render-only
 let acc = 0;
 let last = performance.now();
 
@@ -50,7 +55,10 @@ function resize(): void {
 function startRun(): void {
   state = initState(Date.now() & 0xffffffff, cfg, "running");
   newBest = false;
+  prevBySide = [0, 0];
   acc = 0;
+  juice.clear();
+  sfx.play("click");
   inputs.drain();
 }
 
@@ -76,10 +84,25 @@ document.addEventListener("visibilitychange", () => {
 // and from Game-Over (AC-8/10/11). While running these keys/taps are lane switches
 // handled by the input adapter; here we only gate the start/restart transition.
 window.addEventListener("keydown", (e) => {
+  sfx.unlock(); // first user gesture unlocks audio (AC-2 autoplay policy)
   if (!e.repeat && state.status !== "running") startRun();
 });
 window.addEventListener("pointerdown", () => {
+  sfx.unlock();
   if (state.status !== "running") startRun();
+});
+
+// Mute toggle (AC-3) — DOM button; stopPropagation so tapping it never starts/steers a game.
+const muteBtn = document.getElementById("mute");
+function paintMute(): void {
+  if (muteBtn) muteBtn.textContent = sfx.muted() ? "🔇" : "🔊";
+}
+paintMute();
+muteBtn?.addEventListener("pointerdown", (e) => {
+  e.stopPropagation();
+  sfx.unlock();
+  sfx.toggleMute();
+  paintMute();
 });
 
 function frame(now: number): void {
@@ -96,9 +119,25 @@ function frame(now: number): void {
       acc -= TICK_MS;
       steps += 1;
     }
-    // record best exactly once on the running → game-over edge (AC-8/AC-11)
+    // eat feedback attributed to the bird that actually ate (core tracks per side) —
+    // RENDER-ONLY, derived from State, never fed back into core. Fires even on the
+    // fatal tick (a seed eaten as the game ends still gets its blip).
+    let ate = false;
+    for (const side of [0, 1] as const) {
+      if (state.seedsEatenBySide[side] > prevBySide[side]) {
+        ate = true;
+        juice.burstEat(layout.laneX(side, state.birds[side]), layout.y(cfg.birdY));
+      }
+    }
+    if (ate) sfx.play("eat");
+    prevBySide = [...state.seedsEatenBySide];
+
+    // record best + crash feedback exactly once on the running → game-over edge (AC-8/AC-11)
     if (wasRunning && state.status === "gameover") {
       newBest = bestScore.submit(scoreOf(state, cfg));
+      sfx.play(state.gameoverReason === "seed-missed" ? "miss" : "crash");
+      juice.kick(14);
+      juice.flash(state.gameoverReason === "seed-missed" ? "#b13e53" : "#ffffff");
     }
     // Drop the backlog ONLY when the cap was hit with work still pending
     // (death-spiral guard); a legitimate exactly-5-tick frame keeps its
@@ -107,7 +146,14 @@ function frame(now: number): void {
   }
   last = now;
   const hud: Hud = { score: scoreOf(state, cfg), best: bestScore.get(), newBest };
+  if (!paused) juice.step(); // freeze particles/shake while paused (N3)
+  const sh = paused ? { x: 0, y: 0 } : juice.shakeOffset();
+  ctx.save();
+  ctx.translate(sh.x, sh.y);
   draw(ctx, state, cfg, layout, paused, hud);
+  juice.drawParticles(ctx);
+  ctx.restore();
+  juice.drawFlash(ctx, layout.width, layout.height);
   requestAnimationFrame(frame);
 }
 
@@ -121,4 +167,5 @@ requestAnimationFrame(frame);
   getScore: () => scoreOf(state, cfg),
   getBest: () => bestScore.get(),
   isNewBest: () => newBest,
+  isMuted: () => sfx.muted(),
 };

@@ -2,15 +2,30 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Two Birds</title>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; background: #1a1c2c; overflow: hidden; }
       #game { display: block; margin: 0 auto; touch-action: none; }
+      /* mute toggle — respects notch/safe-area, large enough tap target (AC-3, a11y) */
+      #mute {
+        position: fixed;
+        top: calc(env(safe-area-inset-top, 0px) + 10px);
+        right: calc(env(safe-area-inset-right, 0px) + 10px);
+        width: 44px; height: 44px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 22px; line-height: 1;
+        background: rgba(51, 60, 87, 0.7); color: #f4f4f4;
+        border: 2px solid #566c86; border-radius: 10px;
+        cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation; padding: 0;
+      }
+      #mute:hover { background: rgba(86, 108, 134, 0.8); }
     </style>
   </head>
   <body>
     <canvas id="game"></canvas>
+    <button id="mute" type="button" aria-label="Bật/tắt âm thanh">🔊</button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

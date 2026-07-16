@@ -13,6 +13,7 @@ declare global {
       getScore: () => number;
       getBest: () => number;
       isNewBest: () => boolean;
+      isMuted: () => boolean;
     };
   }
 }
@@ -136,4 +137,46 @@ test("TB-018/TB-021: a session below the record leaves best unchanged and does n
   expect(await score(page)).toBeLessThan(999999); // a hands-off session never beats this
   expect(await isNewBest(page)).toBe(false);
   expect(await best(page)).toBe(999999); // untouched
+});
+
+test("TB-023: a full play→eat→crash cycle logs no console errors (SFX/juice safe)", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("pageerror", (e) => errors.push(String(e)));
+  await page.goto("/");
+  await start(page); // click SFX + unlock
+  await expect.poll(() => status(page), { timeout: 15000 }).toBe("gameover"); // eat blips + crash SFX/shake fire
+  await page.keyboard.press("Space"); // restart click
+  await expect.poll(() => status(page)).toBe("running");
+  expect(errors, `console errors: ${errors.join(" | ")}`).toEqual([]);
+});
+
+test("TB-024: no AudioContext is created before the first user gesture (autoplay-safe)", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__acCount = 0;
+    const Orig = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (Orig) {
+      (window as any).AudioContext = class extends Orig {
+        constructor(...a: unknown[]) { super(...(a as [])); (window as any).__acCount++; }
+      };
+    }
+  });
+  await page.goto("/");
+  await expect(page.locator("#game")).toBeVisible();
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => (window as any).__acCount)).toBe(0); // nothing before a gesture
+  await page.keyboard.press("Space"); // first gesture → unlock()
+  await expect.poll(() => page.evaluate(() => (window as any).__acCount)).toBeGreaterThan(0);
+});
+
+test("TB-025: mute toggle persists across reload", async ({ page }) => {
+  await page.goto("/");
+  expect(await page.evaluate(() => window.__twoBirds.isMuted())).toBe(false);
+  await page.locator("#mute").click();
+  await expect.poll(() => page.evaluate(() => window.__twoBirds.isMuted())).toBe(true);
+  await page.reload();
+  await expect(page.locator("#game")).toBeVisible();
+  expect(await page.evaluate(() => window.__twoBirds.isMuted())).toBe(true); // remembered
+  // the start-tap must not have leaked while toggling mute: still idle
+  expect(await status(page)).toBe("idle");
 });
