@@ -14,6 +14,7 @@ declare global {
       getBest: () => number;
       isNewBest: () => boolean;
       isMuted: () => boolean;
+      getName: () => string;
     };
   }
 }
@@ -179,4 +180,45 @@ test("TB-025: mute toggle persists across reload", async ({ page }) => {
   expect(await page.evaluate(() => window.__twoBirds.isMuted())).toBe(true); // remembered
   // the start-tap must not have leaked while toggling mute: still idle
   expect(await status(page)).toBe("idle");
+});
+
+test("TB-037: name input shows on the Start screen and hides once playing", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#name")).toBeVisible();
+  await start(page); // Space (name not focused) → running
+  await expect(page.locator("#name")).toBeHidden();
+});
+
+test("TB-038: player name persists across reload and can be changed", async ({ page }) => {
+  await page.goto("/");
+  await page.fill("#name", "Bo");
+  await page.reload();
+  await expect(page.locator("#game")).toBeVisible();
+  expect(await page.inputValue("#name")).toBe("Bo");
+  await page.fill("#name", "Khanh");
+  await page.reload();
+  expect(await page.inputValue("#name")).toBe("Khanh"); // overwritten + persisted
+});
+
+test("TB-039: blank name plays as 'Khách' and shows at game over", async ({ page }) => {
+  await page.goto("/"); // fresh context → no stored name
+  expect(await page.inputValue("#name")).toBe("");
+  await start(page);
+  await expect.poll(() => status(page), { timeout: 15000 }).toBe("gameover");
+  expect(await page.evaluate(() => window.__twoBirds.getName())).toBe("Khách");
+});
+
+test("TB-040: typing in the name field never starts or steers the game", async ({ page }) => {
+  await page.setViewportSize({ width: 480, height: 800 });
+  await page.goto("/");
+  await page.locator("#name").click(); // focus the field
+  await page.keyboard.type("Ad");
+  await page.keyboard.press("Space");
+  await page.keyboard.press("ArrowLeft");
+  expect(await status(page)).toBe("idle"); // still on the Start screen
+  const s = await state(page);
+  expect(s.birds).toEqual([0, 1]); // no lane switch leaked
+  // a real start: tap the canvas away from the input
+  await page.mouse.click(60, 120);
+  await expect.poll(() => status(page)).toBe("running");
 });

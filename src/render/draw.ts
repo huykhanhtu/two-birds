@@ -23,6 +23,8 @@ export interface Hud {
   best: number;
   /** true when the just-ended session beat the stored best (game-over only) */
   newBest: boolean;
+  /** player display name (already resolved to "Khách" when empty) */
+  name: string;
 }
 
 export interface Layout {
@@ -112,9 +114,14 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
     ctx.fillStyle = COLORS.muted;
     ctx.fillText(why, cx, l.height / 2 - 50);
 
+    // player name above the score (AC-6)
+    ctx.fillStyle = COLORS.best;
+    ctx.font = `bold ${Math.round(l.width / 22)}px system-ui, sans-serif`;
+    ctx.fillText(hud.name, cx, l.height / 2 - 14);
+
     ctx.fillStyle = COLORS.text;
     ctx.font = `bold ${Math.round(l.width / 11)}px system-ui, sans-serif`;
-    ctx.fillText(String(hud.score), cx, l.height / 2 + 6);
+    ctx.fillText(String(hud.score), cx, l.height / 2 + 24);
 
     ctx.font = `${Math.round(l.width / 28)}px system-ui, sans-serif`;
     if (hud.newBest) {

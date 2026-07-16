@@ -12,6 +12,7 @@ import { DEFAULT_CONFIG, validateConfig } from "./config";
 import { initState, scoreOf, tick, type State } from "./core/game";
 import { attachInputs } from "./input/adapters";
 import { createBestScoreStore } from "./persistence/bestScore";
+import { createPlayerNameStore, displayName } from "./persistence/playerName";
 import { draw, makeLayout, type Hud, type Layout } from "./render/draw";
 import { createJuice } from "./render/juice";
 
@@ -25,6 +26,7 @@ const inputs = attachInputs();
 const bestScore = createBestScoreStore();
 const sfx = createSfx();
 const juice = createJuice();
+const playerName = createPlayerNameStore();
 
 // open on the Start screen (idle): the core does not tick until first input (AC-10)
 let state: State = initState(Date.now() & 0xffffffff, cfg, "idle");
@@ -105,6 +107,17 @@ muteBtn?.addEventListener("pointerdown", (e) => {
   paintMute();
 });
 
+// Name input (Leaderboard W1) — visible only on the Start screen. stopPropagation so
+// typing/tapping the field never starts or steers the game (AC-8). Shown/hidden by status.
+const nameInput = document.getElementById("name") as HTMLInputElement | null;
+if (nameInput) {
+  nameInput.value = playerName.get();
+  nameInput.addEventListener("keydown", (e) => e.stopPropagation());
+  nameInput.addEventListener("pointerdown", (e) => e.stopPropagation());
+  nameInput.addEventListener("input", () => playerName.set(nameInput.value));
+  nameInput.addEventListener("blur", () => { nameInput.value = playerName.get(); }); // reflect sanitized
+}
+
 function frame(now: number): void {
   if (justResumed) {
     inputs.drain();
@@ -145,7 +158,14 @@ function frame(now: number): void {
     if (steps === MAX_CATCHUP_TICKS && acc >= TICK_MS) acc = 0;
   }
   last = now;
-  const hud: Hud = { score: scoreOf(state, cfg), best: bestScore.get(), newBest };
+  // name input is only for the Start screen (idle) — hide once a game is on
+  if (nameInput) nameInput.style.display = state.status === "idle" ? "" : "none";
+  const hud: Hud = {
+    score: scoreOf(state, cfg),
+    best: bestScore.get(),
+    newBest,
+    name: displayName(playerName.get()),
+  };
   if (!paused) juice.step(); // freeze particles/shake while paused (N3)
   const sh = paused ? { x: 0, y: 0 } : juice.shakeOffset();
   ctx.save();
@@ -168,4 +188,5 @@ requestAnimationFrame(frame);
   getBest: () => bestScore.get(),
   isNewBest: () => newBest,
   isMuted: () => sfx.muted(),
+  getName: () => displayName(playerName.get()),
 };
