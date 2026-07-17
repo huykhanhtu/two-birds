@@ -12,8 +12,12 @@ export interface GameConfig {
   minGapTicks: number;
   /** random extra ticks added to each gap (0..jitter); only ever INCREASES gap, so safe */
   gapJitterTicks: number;
-  /** probability a spawned object is a pole (rest are seeds) */
+  /** probability a spawned object is a pole */
   poleRatio: number;
+  /** probability a spawned object is a `flip` power-up (invert-powerup feature).
+   * Carved out of the seed share: P(seed) = 1 − poleRatio − flipRatio. 0 disables
+   * flips entirely (keeps the exact Wave 1-3 spawn stream — regression, AC-9). */
+  flipRatio: number;
   /** hitbox = visual size × shrink (AC-5); must be in (0, 1] */
   hitboxShrink: number;
   /** half-height of bird / falling object visuals, units */
@@ -47,7 +51,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   fallSpeed: 6,
   minGapTicks: 45, // 0.75s at 60Hz
   gapJitterTicks: 30,
-  poleRatio: 0.6, // 60:40 pole:seed (spec, khanht 2026-07-15)
+  poleRatio: 0.6, // 60:40 pole:seed at flipRatio 0 (spec, khanht 2026-07-15)
+  flipRatio: 0.04, // rare invert power-up (~4% of spawns, khanht 2026-07-17)
   hitboxShrink: 0.8,
   birdHalf: 28,
   objHalf: 28,
@@ -121,6 +126,9 @@ export function validateConfig(c: GameConfig): GameConfig {
   if (c.minGapTicks < 1) bad("minGapTicks must be >= 1");
   if (c.gapJitterTicks < 0) bad("gapJitterTicks must be >= 0");
   if (c.poleRatio < 0 || c.poleRatio > 1) bad("poleRatio must be within 0..1");
+  if (c.flipRatio < 0) bad("flipRatio must be >= 0");
+  // seeds take whatever pole+flip leave; the two shares must not exceed the whole (AC-8)
+  if (c.poleRatio + c.flipRatio > 1) bad("poleRatio + flipRatio must be <= 1 (no room for seeds)");
   if (c.hitboxShrink <= 0 || c.hitboxShrink > 1) bad("hitboxShrink must be in (0, 1]");
   if (c.birdHalf <= 0 || c.objHalf <= 0) bad("birdHalf/objHalf must be > 0");
   if (c.reactionTicks < 0) bad("reactionTicks must be >= 0");

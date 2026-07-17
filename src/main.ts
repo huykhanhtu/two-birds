@@ -9,7 +9,7 @@
  * resume (`justResumed`). */
 import { createSfx } from "./audio/sfx";
 import { DEFAULT_CONFIG, validateConfig } from "./config";
-import { initState, scoreOf, tick, type State } from "./core/game";
+import { birdRowOf, initState, scoreOf, tick, type State } from "./core/game";
 import { attachInputs } from "./input/adapters";
 import { createBestScoreStore } from "./persistence/bestScore";
 import { createPlayerNameStore, displayName } from "./persistence/playerName";
@@ -143,7 +143,8 @@ function frame(now: number): void {
     for (const side of [0, 1] as const) {
       if (state.seedsEatenBySide[side] > prevBySide[side]) {
         ate = true;
-        juice.burstEat(layout.laneX(side, state.birds[side]), layout.y(cfg.birdY));
+        // burst at the bird's effective row — top when the field is inverted (AC-10)
+        juice.burstEat(layout.laneX(side, state.birds[side]), layout.y(birdRowOf(cfg, state.inverted)));
       }
     }
     if (ate) sfx.play("eat");
@@ -193,4 +194,17 @@ requestAnimationFrame(frame);
   isNewBest: () => newBest,
   isMuted: () => sfx.muted(),
   getName: () => displayName(playerName.get()),
+  isInverted: () => state.inverted,
+  // Test-only: drop a flip onto bird L's current lane at the bird row so the next
+  // tick eats it (deterministic e2e for TB-050). Never used by game logic.
+  spawnFlipOnBird: () => {
+    if (state.status !== "running") return;
+    const lane = state.birds[0];
+    state = {
+      ...state,
+      objects: [...state.objects,
+        { id: state.nextId, side: 0, lane, kind: "flip", y: birdRowOf(cfg, state.inverted) }],
+      nextId: state.nextId + 1,
+    };
+  },
 };

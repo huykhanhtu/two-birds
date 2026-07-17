@@ -15,6 +15,8 @@ declare global {
       isNewBest: () => boolean;
       isMuted: () => boolean;
       getName: () => string;
+      isInverted: () => boolean;
+      spawnFlipOnBird: () => void;
     };
   }
 }
@@ -138,6 +140,18 @@ test("TB-018/TB-021: a session below the record leaves best unchanged and does n
   expect(await score(page)).toBeLessThan(999999); // a hands-off session never beats this
   expect(await isNewBest(page)).toBe(false);
   expect(await best(page)).toBe(999999); // untouched
+});
+
+test("TB-050: eating a flip inverts the field; eating another flips it back", async ({ page }) => {
+  await page.goto("/");
+  await start(page);
+  expect(await page.evaluate(() => window.__twoBirds.isInverted())).toBe(false);
+  // deterministically drop a flip onto the bird → next tick eats it → invert
+  await page.evaluate(() => window.__twoBirds.spawnFlipOnBird());
+  await expect.poll(() => page.evaluate(() => window.__twoBirds.isInverted())).toBe(true);
+  // a second flip toggles the field back to normal
+  await page.evaluate(() => window.__twoBirds.spawnFlipOnBird());
+  await expect.poll(() => page.evaluate(() => window.__twoBirds.isInverted())).toBe(false);
 });
 
 test("TB-023: a full play→eat→crash cycle logs no console errors (SFX/juice safe)", async ({ page }) => {

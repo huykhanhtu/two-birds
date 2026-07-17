@@ -1,7 +1,7 @@
 /** Canvas 2D renderer — reads State, never mutates it. Hand-drawn shapes (no assets,
  * zero deps — ADR-0007). Wave 3 may swap these for sprites. */
 import type { GameConfig } from "../config";
-import type { Lane, Side, State } from "../core/game";
+import { birdRowOf, type Lane, type Side, type State } from "../core/game";
 
 const COLORS = {
   // sky (background) — top → horizon
@@ -13,6 +13,8 @@ const COLORS = {
   // objects
   planeWing: "#c2ccda", planeEngine: "#566c86", planeAccent: "#b13e53", cockpit: "#2f3b57",
   seed: "#ffcd75", seedHi: "#fff6d5", seedShade: "#ef7d57", sprout: "#a7f070",
+  // invert power-up (distinct magenta so it never reads as a plane or a seed)
+  flip: "#b16cff", flipHi: "#e6ccff", flipRing: "#7a3ce0",
   // text
   text: "#f4f4f4", muted: "#94b0c2", best: "#ffcd75", newBest: "#a7f070",
 };
@@ -52,18 +54,28 @@ export function draw(ctx: CanvasRenderingContext2D, s: State, cfg: GameConfig,
                      l: Layout, paused: boolean, hud: Hud): void {
   drawPlayfield(ctx, l, s.tick);
 
+  // invert-powerup: when the field is flipped, birds sit at the mirrored (top) row and
+  // everything is drawn upside-down so planes/birds face the way they now travel (AC-10).
+  if (s.inverted) drawInvertSignal(ctx, l);
+
   const objH = cfg.objHalf * 2 * l.scale;
   const objW = Math.min(l.width / 4 - 14, objH * 1.25);
   for (const o of s.objects) {
     const x = l.laneX(o.side, o.lane);
     const y = l.y(o.y);
-    if (o.kind === "pole") drawPlane(ctx, x, y, objW, objH); // "pole" = the avoid-obstacle kind, skinned as a plane
-    else drawSeed(ctx, x, y, objH * 0.46);
+    const paint = (): void => {
+      if (o.kind === "pole") drawPlane(ctx, x, y, objW, objH); // "pole" = avoid-obstacle, skinned as a plane
+      else if (o.kind === "flip") drawFlip(ctx, x, y, objH * 0.5, s.tick);
+      else drawSeed(ctx, x, y, objH * 0.46);
+    };
+    if (s.inverted) mirroredAround(ctx, x, y, paint); // vertical mirror to match travel dir
+    else paint();
   }
 
   const birdR = cfg.birdHalf * l.scale;
-  drawBird(ctx, l.laneX(0, s.birds[0]), l.y(cfg.birdY), birdR, s.tick, "L");
-  drawBird(ctx, l.laneX(1, s.birds[1]), l.y(cfg.birdY), birdR, s.tick, "R");
+  const birdRow = l.y(birdRowOf(cfg, s.inverted));
+  drawBird(ctx, l.laneX(0, s.birds[0]), birdRow, birdR, s.tick, "L", s.inverted);
+  drawBird(ctx, l.laneX(1, s.birds[1]), birdRow, birdR, s.tick, "R", s.inverted);
 
   // live score HUD while playing (AC-1) — hidden under the idle/game-over overlays
   if (s.status === "running") {
@@ -357,9 +369,75 @@ function drawSeed(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: numb
   ctx.stroke();
 }
 
-/** A little bird facing up: body, belly, wing (flaps with tick), tail, beak, eye. */
+/** Run `paint` with the canvas vertically mirrored about (cx, cy) — used in inverted
+ * mode so sprites face their new travel direction. Never leaks transform state. */
+function mirroredAround(ctx: CanvasRenderingContext2D, cx: number, cy: number, paint: () => void): void {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, -1);
+  ctx.translate(-cx, -cy);
+  paint();
+  ctx.restore();
+}
+
+/** The invert power-up: a glowing magenta ring with two opposing vertical arrowheads
+ * (a "flip the screen" glyph), gently pulsing so it stands out as a rare pickup. */
+function drawFlip(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, tick: number): void {
+  const pulse = 1 + Math.sin(tick * 0.18) * 0.06;
+  const rr = r * pulse;
+  // soft glow
+  ctx.fillStyle = "rgba(177,108,255,0.22)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, rr * 1.5, 0, Math.PI * 2);
+  ctx.fill();
+  // ring
+  ctx.strokeStyle = COLORS.flipRing;
+  ctx.lineWidth = Math.max(2, rr * 0.16);
+  ctx.beginPath();
+  ctx.arc(cx, cy, rr * 0.82, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = COLORS.flip;
+  ctx.lineWidth = Math.max(1.5, rr * 0.1);
+  ctx.beginPath();
+  ctx.arc(cx, cy, rr * 0.82, 0, Math.PI * 2);
+  ctx.stroke();
+  // two opposing vertical arrowheads (up + down) → "flip"
+  ctx.fillStyle = COLORS.flipHi;
+  for (const dir of [-1, 1]) {
+    const ay = cy + dir * rr * 0.42;
+    ctx.beginPath();
+    ctx.moveTo(cx, ay + dir * rr * 0.34); // tip
+    ctx.lineTo(cx - rr * 0.3, ay - dir * rr * 0.02);
+    ctx.lineTo(cx + rr * 0.3, ay - dir * rr * 0.02);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/** Subtle "you are flipped" cue: faint magenta bands at the field edges (AC-10) —
+ * light enough not to obscure play, distinct enough to register the mode change. */
+function drawInvertSignal(ctx: CanvasRenderingContext2D, l: Layout): void {
+  const band = l.height * 0.14;
+  for (const [y0, y1, a0, a1] of [
+    [0, band, 0.34, 0], // top
+    [l.height - band, l.height, 0, 0.34], // bottom
+  ] as const) {
+    const g = ctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, `rgba(177,108,255,${a0})`);
+    g.addColorStop(1, `rgba(177,108,255,${a1})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y0, l.width, y1 - y0);
+  }
+}
+
+/** A little bird facing up: body, belly, wing (flaps with tick), tail, beak, eye.
+ * `flipV` mirrors it vertically (inverted mode) so it faces the incoming objects. */
 function drawBird(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number,
-                  tick: number, which: "L" | "R"): void {
+                  tick: number, which: "L" | "R", flipV = false): void {
+  if (flipV) {
+    mirroredAround(ctx, cx, cy, () => drawBird(ctx, cx, cy, r, tick, which, false));
+    return;
+  }
   const body = which === "L" ? COLORS.birdLbody : COLORS.birdRbody;
   const wing = which === "L" ? COLORS.birdLwing : COLORS.birdRwing;
   const belly = which === "L" ? COLORS.birdLbelly : COLORS.birdRbelly;

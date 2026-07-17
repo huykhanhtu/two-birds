@@ -11,7 +11,8 @@ import { nextRand, seedRng } from "./rng";
 
 export type Side = 0 | 1; // 0 = left half, 1 = right half
 export type Lane = 0 | 1; // two lanes per side (spec)
-export type ObjectKind = "pole" | "seed";
+/** "flip" = rare invert power-up: eating it toggles State.inverted (invert-powerup). */
+export type ObjectKind = "pole" | "seed" | "flip";
 
 export interface FallingObject {
   id: number;
@@ -43,8 +44,25 @@ export interface State {
   /** seeds eaten per side (deterministic; lets the render layer attribute the eat
    * feedback to the correct bird without knowing which one ate) */
   seedsEatenBySide: [number, number];
+  /** invert-powerup: when true the field is vertically mirrored — birds fly at the
+   * TOP row (fieldHeight − birdY) and objects rise from the bottom. A pure vertical
+   * reflection (spawn stream unchanged), so a solvable field stays solvable (AC-4/7).
+   * Toggled by eating a `flip`. Part of State ⇒ core stays pure & deterministic (AC-6). */
+  inverted: boolean;
   /** what ended the game (render shows it; Wave 2 uses it for stats) */
   gameoverReason?: "pole-hit" | "seed-missed";
+}
+
+/** The bird's effective collision/render row for the current orientation (AC-4).
+ * Normal = birdY (near the bottom); inverted = its vertical mirror (near the top). */
+export function birdRowOf(cfg: GameConfig, inverted: boolean): number {
+  return inverted ? cfg.fieldHeight - cfg.birdY : cfg.birdY;
+}
+
+/** True once an object has fully cleared the far edge it travels toward and should
+ * despawn (bottom when normal, top when inverted). For seeds this is the "miss". */
+function pastFarEdge(y: number, cfg: GameConfig, inverted: boolean): boolean {
+  return inverted ? y + cfg.objHalf < 0 : y - cfg.objHalf > cfg.fieldHeight;
 }
 
 export function initState(
@@ -63,6 +81,7 @@ export function initState(
     nextId: 1,
     seedsEaten: 0,
     seedsEatenBySide: [0, 0],
+    inverted: false, // always opens right-side-up; flips toggle it during play (AC-9)
   };
 }
 
@@ -95,8 +114,11 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
     inputs.right ? ((1 - s.birds[1]) as Lane) : s.birds[1],
   ];
 
-  // 2) move
-  let objects = s.objects.map((o) => ({ ...o, y: o.y + fallSpeed }));
+  // 2) move — objects travel DOWN normally, UP when inverted (AC-4). Everything below
+  // is evaluated in the CURRENT orientation (s.inverted); any toggle applies afterward.
+  const dir = s.inverted ? -1 : 1;
+  let objects = s.objects.map((o) => ({ ...o, y: o.y + dir * fallSpeed }));
+  const birdRow = birdRowOf(cfg, s.inverted);
 
   // 3) collide / eat / miss (AC-2, AC-3). Process EVERY object even after a
   // fatal event so the frozen game-over frame shows post-move positions, the
@@ -104,26 +126,32 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
   let seedsEaten = s.seedsEaten;
   const seedsBySide: [number, number] = [...s.seedsEatenBySide];
   let gameoverReason: State["gameoverReason"];
+  let flipsEaten = 0; // invert-powerup: flips consumed this tick (AC-3)
   const remaining: FallingObject[] = [];
   for (const o of objects) {
-    const onBird = o.lane === birds[o.side] && collides(o.y, cfg.birdY, cfg);
+    const onBird = o.lane === birds[o.side] && collides(o.y, birdRow, cfg);
     if (o.kind === "pole") {
       if (onBird) {
         gameoverReason = gameoverReason ?? "pole-hit";
         remaining.push(o); // keep the killer visible in the frozen frame
-      } else if (o.y - cfg.objHalf <= cfg.fieldHeight) {
-        remaining.push(o); // poles that clear the bottom simply despawn
+      } else if (!pastFarEdge(o.y, cfg, s.inverted)) {
+        remaining.push(o); // poles that clear the far edge simply despawn
       }
-    } else {
+    } else if (o.kind === "seed") {
       if (onBird) {
         seedsEaten += 1; // eaten — gone
         seedsBySide[o.side] += 1;
-      } else if (o.y - cfg.objHalf > cfg.fieldHeight) {
+      } else if (pastFarEdge(o.y, cfg, s.inverted)) {
         gameoverReason = gameoverReason ?? "seed-missed";
         remaining.push(o);
       } else {
         remaining.push(o);
       }
+    } else {
+      // "flip" — optional power-up. Eating it toggles inversion; a missed flip clears
+      // the far edge and despawns harmlessly — never a game over (AC-2).
+      if (onBird) flipsEaten += 1; // eaten — gone
+      else if (!pastFarEdge(o.y, cfg, s.inverted)) remaining.push(o);
     }
   }
   objects = remaining;
@@ -134,19 +162,36 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
     };
   }
 
-  // 4) spawn — per side, gap-constrained rows (AC-4 fairness floor)
+  // 3b) apply the invert toggle from flips eaten this tick (AC-3/AC-4). An odd count
+  // flips orientation; two flips in one tick cancel (parity). Toggling MIRRORS every
+  // in-flight object vertically (khanht: mirror tức thời) — a pure reflection that
+  // preserves each object's lane and its remaining distance to the bird, so the field
+  // stays exactly as solvable as before (proven by the property test TB-047).
+  let inverted = s.inverted;
+  if (flipsEaten % 2 === 1) {
+    inverted = !inverted;
+    objects = objects.map((o) => ({ ...o, y: cfg.fieldHeight - o.y }));
+  }
+
+  // 4) spawn — per side, gap-constrained rows (AC-4 fairness floor). Objects enter from
+  // the edge opposite their travel: top when normal, bottom when inverted. The RNG draws
+  // (lane, kind, gap) are unchanged by orientation ⇒ identical spawn stream (AC-7).
   let rng = s.rng;
   let nextId = s.nextId;
   const nextSpawn: [number, number] = [...s.nextSpawn];
   const newTick = s.tick + 1;
+  const spawnY = inverted ? cfg.fieldHeight + cfg.objHalf : -cfg.objHalf;
   for (const side of [0, 1] as const) {
     if (newTick >= nextSpawn[side]) {
       let r: number;
       [r, rng] = nextRand(rng);
       const lane: Lane = r < 0.5 ? 0 : 1;
       [r, rng] = nextRand(rng);
-      const kind: ObjectKind = r < cfg.poleRatio ? "pole" : "seed";
-      objects = [...objects, { id: nextId++, side, lane, kind, y: -cfg.objHalf }];
+      // three-way split: pole | flip | seed. flipRatio is carved out of the seed share,
+      // so flipRatio=0 reproduces the exact Wave 1-3 pole/seed stream (AC-9).
+      const kind: ObjectKind =
+        r < cfg.poleRatio ? "pole" : r < cfg.poleRatio + cfg.flipRatio ? "flip" : "seed";
+      objects = [...objects, { id: nextId++, side, lane, kind, y: spawnY }];
       [r, rng] = nextRand(rng);
       // gap shrinks with difficulty (denser) but never below the fairness floor,
       // enforced structurally by validateConfig across all t (AC-6). Jitter only adds.
@@ -164,5 +209,6 @@ export function tick(s: State, inputs: Inputs, cfg: GameConfig): State {
     nextId,
     seedsEaten,
     seedsEatenBySide: seedsBySide,
+    inverted,
   };
 }
