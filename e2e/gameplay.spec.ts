@@ -182,14 +182,16 @@ test("TB-025: mute toggle persists across reload", async ({ page }) => {
   expect(await status(page)).toBe("idle");
 });
 
-test("TB-037: name input shows on the Start screen and hides once playing", async ({ page }) => {
+// Name-UI e2e skipped: the player-name feature is hidden for now (NAME_UI=false, khanht 2026-07-16).
+// Sanitize/store unit tests (playerName.test.ts) still run. Un-skip when the name UI returns.
+test.skip("TB-037: name input shows on the Start screen and hides once playing", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#name")).toBeVisible();
   await start(page); // Space (name not focused) → running
   await expect(page.locator("#name")).toBeHidden();
 });
 
-test("TB-038: player name persists across reload and can be changed", async ({ page }) => {
+test.skip("TB-038: player name persists across reload and can be changed", async ({ page }) => {
   await page.goto("/");
   await page.fill("#name", "Bo");
   await page.reload();
@@ -200,7 +202,7 @@ test("TB-038: player name persists across reload and can be changed", async ({ p
   expect(await page.inputValue("#name")).toBe("Khanh"); // overwritten + persisted
 });
 
-test("TB-039: blank name plays as 'Khách' and shows at game over", async ({ page }) => {
+test.skip("TB-039: blank name plays as 'Khách' and shows at game over", async ({ page }) => {
   await page.goto("/"); // fresh context → no stored name
   expect(await page.inputValue("#name")).toBe("");
   await start(page);
@@ -208,7 +210,7 @@ test("TB-039: blank name plays as 'Khách' and shows at game over", async ({ pag
   expect(await page.evaluate(() => window.__twoBirds.getName())).toBe("Khách");
 });
 
-test("TB-040: typing in the name field never starts or steers the game", async ({ page }) => {
+test.skip("TB-040: typing in the name field never starts or steers the game", async ({ page }) => {
   await page.setViewportSize({ width: 480, height: 800 });
   await page.goto("/");
   await page.locator("#name").click(); // focus the field

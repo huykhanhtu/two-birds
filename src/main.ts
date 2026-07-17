@@ -27,6 +27,10 @@ const bestScore = createBestScoreStore();
 const sfx = createSfx();
 const juice = createJuice();
 const playerName = createPlayerNameStore();
+// Player-name UI hidden for now (khanht 2026-07-16, "chưa cần"): the Start input is never
+// shown and the name is omitted at game-over. Sanitize/store code + unit tests are retained;
+// flip this to true to bring the feature back.
+const NAME_UI = false;
 
 // open on the Start screen (idle): the core does not tick until first input (AC-10)
 let state: State = initState(Date.now() & 0xffffffff, cfg, "idle");
@@ -159,12 +163,12 @@ function frame(now: number): void {
   }
   last = now;
   // name input is only for the Start screen (idle) — hide once a game is on
-  if (nameInput) nameInput.style.display = state.status === "idle" ? "" : "none";
+  if (nameInput) nameInput.style.display = NAME_UI && state.status === "idle" ? "" : "none";
   const hud: Hud = {
     score: scoreOf(state, cfg),
     best: bestScore.get(),
     newBest,
-    name: displayName(playerName.get()),
+    name: NAME_UI ? displayName(playerName.get()) : "",
   };
   if (!paused) juice.step(); // freeze particles/shake while paused (N3)
   const sh = paused ? { x: 0, y: 0 } : juice.shakeOffset();
